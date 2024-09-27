@@ -1,0 +1,14 @@
+version: '3'
+services:
+  preekrooster:
+    build: .
+    container_name: preekrooster_app
+    volumes:
+      - preekrooster:/app
+    env_file: stack.env
+    environment:
+      - TZ=Europe/Amsterdam
+    restart: unless-stopped
+
+volumes:
+  preekrooster:

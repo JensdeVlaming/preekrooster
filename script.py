@@ -14,13 +14,26 @@ warnings.filterwarnings("ignore", message=".*The localize method is no longer ne
 warnings.filterwarnings("ignore", message=".*The zone attribute is specific to pytz's interface*")
 
 # Setup logger
-logging.basicConfig(filename="log.txt",
-                    filemode='a',
-                    format='%(asctime)s %(levelname)s %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
-
+# Setup logger to log to both file and console
 logger = logging.getLogger('my_logger')
 logger.setLevel(logging.DEBUG)
+
+# Create handlers
+file_handler = logging.FileHandler('log.txt')
+console_handler = logging.StreamHandler()
+
+# Set levels for handlers
+file_handler.setLevel(logging.DEBUG)
+console_handler.setLevel(logging.DEBUG)
+
+# Create formatter and add it to handlers
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# Add handlers to the logger
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 
 # Load environment variables from .env file
 load_dotenv()
