@@ -4,21 +4,16 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from O365 import Account, MSGraphProtocol
-import re
 import warnings
 import logging
 import schedule
 import requests
-import base64
-from bs4 import BeautifulSoup
-import pypdfium2 as pdfium
-import PIL
 
+# Suppress specific warnings
 warnings.filterwarnings("ignore", message=".*The localize method is no longer necessary*")
 warnings.filterwarnings("ignore", message=".*The zone attribute is specific to pytz's interface*")
 
 # Setup logger
-
 logging.basicConfig(filename="log.txt",
                     filemode='a',
                     format='%(asctime)s %(levelname)s %(message)s',
@@ -30,185 +25,174 @@ logger.setLevel(logging.DEBUG)
 # Load environment variables from .env file
 load_dotenv()
 
-# Get database connection details from environment variables
-db_host = os.getenv('DB_HOST')
-db_user = os.getenv('DB_USER')
-db_password = os.getenv('DB_PASSWORD')
-db_name = os.getenv('DB_NAME')
-db_table = os.getenv('DB_TABLE')
-db_query = os.getenv('DB_QUERY')
+def load_env_variable(key, default=None):
+    value = os.getenv(key)
+    if not value and default is None:
+        logger.error(f"Environment variable {key} is missing!")
+        raise ValueError(f"Missing {key}")
+    return value
 
-# Get Azure / app credentials from environment variables
-azure_client_id = os.getenv('AZURE_CLIENT_ID')
-azure_secret_id = os.getenv('AZURE_SECRET_ID')
-azure_tenant_id = os.getenv('AZURE_TENANT_ID')
+# Get database connection details
+db_host = load_env_variable('DB_HOST')
+db_user = load_env_variable('DB_USER')
+db_password = load_env_variable('DB_PASSWORD')
+db_name = load_env_variable('DB_NAME')
+db_query = load_env_variable('DB_QUERY')
 
-# Get Outlook details from environment variables
-outlook_email = os.getenv('OUTLOOK_EMAIL')
-outlook_calendar_name = os.getenv('OUTLOOK_CALENDAR_NAME')
+# Get Azure / app credentials
+azure_client_id = load_env_variable('AZURE_CLIENT_ID')
+azure_secret_id = load_env_variable('AZURE_SECRET_ID')
+azure_tenant_id = load_env_variable('AZURE_TENANT_ID')
 
-# Get Liturgie details from environment variables
-liturgy_url = os.getenv('LITURGY_URL')
+# Get Outlook details
+outlook_email = load_env_variable('OUTLOOK_EMAIL')
+outlook_calendar_name = load_env_variable('OUTLOOK_CALENDAR_NAME')
 
-# Get Wordpress details from environment variables
-wordpress_url = os.getenv('WORDPRESS_URL')
-wordpress_user = os.getenv('WORDPRESS_USER')
-wordpress_password = os.getenv('WORDPRESS_PASSWORD')
+# Get Liturgie details
+liturgy_url = load_env_variable('LITURGY_URL')
 
-# Get Youtube details
-youtube_channel_id = os.getenv('YOUTUBE_CHANNEL_ID')
-
-# Set up Outlook connection
+# Initialize Outlook Account
 protocol = MSGraphProtocol(api_version='v1.0')
-
 credentials = (azure_client_id, azure_secret_id)
 account = Account(credentials, auth_flow_type='credentials', tenant_id=azure_tenant_id, protocol=protocol)
 
-class preekrooster:
+class Preekrooster:
+    
+    @staticmethod
     def create_outlook_event(row):
-        schedule = account.schedule(resource=outlook_email)
-        calendar = schedule.get_calendar(calendar_name=outlook_calendar_name)
+        try:
+            schedule = account.schedule(resource=outlook_email)
+            calendar = schedule.get_calendar(calendar_name=outlook_calendar_name)
 
-        date = row[1]
-        time = datetime.strptime(row[2].strip().replace(".", ":"), '%H:%M').time()
+            date = row[1]
+            time = datetime.strptime(row[2].strip().replace(".", ":"), '%H:%M').time()
 
-        datetime_start = datetime.combine(date,time)
-        datetime_end = datetime_start + timedelta(hours=1.5)
+            datetime_start = datetime.combine(date, time)
+            datetime_end = datetime_start + timedelta(hours=1.5)
 
-        subject = row[3].strip().capitalize()
-        predikant = row[4].strip()
-        collecte1 = row[5].strip()
-        collecte2 = row[6].strip()
-        collecte3 = row[7].strip()
-        location = 'De Wijnstok'
+            subject = row[3].strip().capitalize()
+            predikant = row[4].strip()
+            collecte1 = row[5].strip()
+            collecte2 = row[6].strip()
+            collecte3 = row[7].strip()
+            location = 'De Wijnstok'
 
-        body = "&lt;b&gt;Voorganger:&lt;/b&gt;&lt;br&gt;" + predikant + "&lt;br&gt;&lt;br&gt;&lt;b&gt;Collectedoelen:&lt;/b&gt;" + "&lt;br&gt;1. " + collecte1 + "&lt;br&gt;2. " + collecte2 + "&lt;br&gt;3. " + collecte3 + "&lt;br&gt;&lt;br&gt; &lt;b&gt;&lt;a href='https://www.youtube.com/@pkndubbeldam/live'&gt;Bekijk livestream&lt;/a&gt;&lt;/b&gt;"
+            body = f"""
+            <b>Voorganger:</b><br>{predikant}<br><br>
+            <b>Collectedoelen:</b><br>
+            1. {collecte1}<br>
+            2. {collecte2}<br>
+            3. {collecte3}<br><br>
+            <b><a href='https://www.youtube.com/@pkndubbeldam/live'>Bekijk livestream</a></b>
+            """
 
-        q = calendar.new_query('start').greater_equal(datetime_start)
-        q.chain('and').on_attribute('end').less_equal(datetime_end)
+            # Check for existing events in the given time range
+            events = Preekrooster.get_events_for_time_range(calendar, datetime_start, datetime_end)
 
-        events = calendar.get_events(query=q, include_recurring=True)
-        event_list = list(events)
-        event_count = len(event_list)
+            if not events:
+                Preekrooster.create_new_event(calendar, subject, body, datetime_start, datetime_end, location)
+            elif len(events) == 1:
+                Preekrooster.update_existing_event(events[0], subject, body, location, datetime_start)
+            else:
+                logger.warning("Multiple events found for the same time!")
+                for event in events:
+                    logger.warning(str(event))
+        except Exception as e:
+            logger.error(f"Error in creating or updating event: {str(e)}")
 
-        if (event_count == 0):
-            logger.info("Creating event:")
+    @staticmethod
+    def get_events_for_time_range(calendar, start, end):
+        query = calendar.new_query('start').greater_equal(start)
+        query.chain('and').on_attribute('end').less_equal(end)
+        events = calendar.get_events(query=query, include_recurring=True)
+        return list(events)
 
-            new_event = calendar.new_event()
+    @staticmethod
+    def create_new_event(calendar, subject, body, start, end, location):
+        logger.info("Creating new event")
+        new_event = calendar.new_event()
+        new_event.subject = subject
+        new_event.body = body
+        new_event.start = start
+        new_event.end = end
+        new_event.location = location
+        new_event.save()
+        logger.info(f"New event created: {new_event}")
 
-            if (preekrooster.is_in_current_week(datetime_start)):
-                liturgie = preekrooster.get_liturgie(datetime_start)
-                if (liturgie):
-                    body += "&lt;br&gt;&lt;br&gt; &lt;b&gt;&lt;a href='https://www.pkndubbeldam.nl/files/liturgie.pdf'&gt;Druk hier voor de liturgie&lt;/a&gt;&lt;/b&gt;"
-                else:
-                    body += "&lt;br&gt;&lt;br&gt; &lt;b&gt;&lt;a&gt;Liturgie nog niet beschikbaar&lt;/a&gt;&lt;/b&gt;"
-                # new_event.attachments.remove('Liturgie.pdf')
-                # new_event.attachments.add('Liturgie.pdf')
-                
-                logger.info("ADDED LITURGY")
+    @staticmethod
+    def update_existing_event(event, subject, body, location, datetime_start):
+        logger.info("Updating existing event")
+        if Preekrooster.is_in_current_week(datetime_start):
+            if Preekrooster.get_liturgie(datetime_start):
+                body += "<br><br><b><a href='https://www.pkndubbeldam.nl/files/liturgie.pdf'>Druk hier voor de liturgie</a></b>"
+            else:
+                body += "<br><br><b>Liturgie nog niet beschikbaar</b>"
 
-            new_event.subject = subject
-            new_event.body = body
-            new_event.location = location
-            new_event.start = datetime_start
-            new_event.end = datetime_end
+        event.subject = subject
+        event.body = body
+        event.location = location
+        event.save()
+        logger.info(f"Event updated: {event}")
 
-            new_event.save()
-            logger.info(str(new_event) + "\n")
-        elif (event_count == 1):
-            logger.info("Replacing event:")
-
-            event = event_list[0]
-
-            if (preekrooster.is_in_current_week(datetime_start)):
-                liturgie = preekrooster.get_liturgie(datetime_start)
-                if (liturgie):
-                    body += "&lt;br&gt;&lt;br&gt; &lt;b&gt;&lt;a href='https://www.pkndubbeldam.nl/files/liturgie.pdf'&gt;Druk hier voor de liturgie&lt;/a&gt;&lt;/b&gt;"
-                else:
-                    body += "&lt;br&gt;&lt;br&gt; &lt;b&gt;&lt;a&gt;Liturgie nog niet beschikbaar&lt;/a&gt;&lt;/b&gt;"
-                # event.attachments.remove('Liturgie.pdf')
-                # event.attachments.add('Liturgie.pdf')
-                logger.info("ADDED LITURGY")
-
-            event.subject = subject
-            event.body = body
-            event.location = location
-
-            event.save()
-            logger.info(str(event) + "\n")
-        else:
-            logger.warning("Two or more events at the same time:")
-            for event in event_list:
-                logger.warning(str(event))
-
-        # sleep(2)
-
-    def get_rows_from_database():
-        # Set up database connection
-        db_engine = create_engine(f"mysql+pymysql://{db_user}:{db_password}@{db_host}/{db_name}")\
-
-        # Check the database for new rows
-        with db_engine.connect() as connection:
-
-            query = text(db_query)
-            rows = connection.execute(query)
-
-            return rows
-
+    @staticmethod
     def is_in_current_week(date):
-        current_week, current_year, _ = datetime.now().isocalendar()
-
-        event_week, event_year, _ = date.isocalendar()
-
+        current_week, current_year = datetime.now().isocalendar()[:2]
+        event_week, event_year = date.isocalendar()[:2]
         return current_week == event_week and current_year == event_year
 
+    @staticmethod
     def get_liturgie(event_date):
-        # Calculate the number of days to subtract to get to the Monday of the current week
-        days_to_subtract = event_date.weekday()
+        try:
+            days_to_subtract = event_date.weekday()
+            first_date_of_week = event_date - timedelta(days=days_to_subtract)
 
-        # Calculate the first date (Monday) of the current week with a time of 00:00
-        first_date_of_week = event_date - timedelta(days=days_to_subtract, hours=event_date.hour, minutes=event_date.minute, seconds=event_date.second, microseconds=event_date.microsecond)
+            headers = {'If-Modified-Since': first_date_of_week.strftime('%a, %d %b %Y %H:%M:%S GMT')}
+            response = requests.get(liturgy_url, headers=headers)
 
-        headers = {
-            'If-Modified-Since': first_date_of_week.strftime('%a, %d %b %Y %H:%M:%S GMT')
-        }
-
-        response = requests.get(liturgy_url, headers=headers)
-
-        if response.status_code == 200:
-            return True
-
-        elif response.status_code == 304:
-            logger.info("Liturgy not from this week!")
-            return False
-        else:
-            logger.debug("An error occurred while retrieving the liturgy.")
+            if response.status_code == 200:
+                logger.info("Liturgy available")
+                return True
+            elif response.status_code == 304:
+                logger.info("Liturgy not available this week")
+                return False
+            else:
+                logger.error("Error fetching liturgy")
+                return False
+        except Exception as e:
+            logger.error(f"Error fetching liturgy: {str(e)}")
             return False
 
+    @staticmethod
+    def get_rows_from_database():
+        try:
+            db_engine = create_engine(f"mysql+pymysql://{db_user}:{db_password}@{db_host}/{db_name}")
+            with db_engine.connect() as connection:
+                query = text(db_query)
+                rows = connection.execute(query)
+                return rows
+        except Exception as e:
+            logger.error(f"Error fetching rows from database: {str(e)}")
+            return []
+
+    @staticmethod
     def run():
-        logger.debug("Import started\n")
-        
-        database_rows = preekrooster.get_rows_from_database()
-
+        logger.info("Running preekrooster job")
+        database_rows = Preekrooster.get_rows_from_database()
         account.authenticate()
 
         for row in database_rows:
-            preekrooster.create_outlook_event(row)
+            Preekrooster.create_outlook_event(row)
+        logger.info("Preekrooster job completed")
 
-        logger.debug("Import done\n")
-
-        os.remove('o365_token.txt')
-
-def main(): 
-    logger.debug("Script started\n")
-    schedule.every().day.at("00:05").do(preekrooster.run)
-    
-    schedule.every().sunday.at("09:30").do(preekrooster.run)
+def main():
+    logger.info("Starting script")
+    schedule.every().day.at("00:05").do(Preekrooster.run)
+    schedule.every().sunday.at("09:30").do(Preekrooster.run)
 
     while True:
         schedule.run_pending()
         sleep(1)
 
 if __name__ == '__main__':
-    preekrooster.run()
+    Preekrooster.run()
     main()
