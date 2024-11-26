@@ -8,6 +8,7 @@ import warnings
 import logging
 import schedule
 import requests
+import sys 
 
 # Suppress specific warnings
 warnings.filterwarnings("ignore", message=".*The localize method is no longer necessary*")
