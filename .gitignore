@@ -1,3 +1,5 @@
 .env
 log.txt
 venv/
+logfile.txt
+o365_token.txt

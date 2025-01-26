@@ -90,7 +90,17 @@ class Preekrooster:
             collecte3 = row[7].strip()
             location = 'De Wijnstok'
 
-            body = r"&lt;b&gt;Voorganger:&lt;/b&gt;&lt;br&gt;" + predikant + "&lt;br&gt;&lt;br&gt;&lt;b&gt;Collectedoelen:&lt;/b&gt;" + "&lt;br&gt;1. " + collecte1 + "&lt;br&gt;2. " + collecte2 + "&lt;br&gt;3. " + collecte3 + "&lt;br&gt;&lt;br&gt; &lt;b&gt;&lt;a href='https://www.youtube.com/@pkndubbeldam/live'&gt;Bekijk livestream&lt;/a&gt;&lt;/b&gt;"
+            body = f"""
+            **Voorganger:**  
+            {predikant}  
+
+            **Collectedoelen:**  
+            1. {collecte1}  
+            2. {collecte2}  
+            3. {collecte3}  
+
+            **[Bekijk livestream](https://www.youtube.com/@pkndubbeldam/live)**
+            """
 
             # Check for existing events in the given time range
             events = Preekrooster.get_events_for_time_range(calendar, datetime_start, datetime_end)
@@ -130,10 +140,14 @@ class Preekrooster:
         logger.info("Updating existing event")
         if Preekrooster.is_in_current_week(datetime_start):
             liturgie = Preekrooster.get_liturgie(datetime_start)
-            if (liturgie):
-                body += r"&lt;br&gt;&lt;br&gt; &lt;b&gt;&lt;a href='https://www.pkndubbeldam.nl/files/liturgie.pdf'&gt;Druk hier voor de liturgie&lt;/a&gt;&lt;/b&gt;"
+            if liturgie:
+                body += """  
+                **[Druk hier voor de liturgie](https://www.pkndubbeldam.nl/files/liturgie.pdf)**  
+                """
             else:
-                body += r"&lt;br&gt;&lt;br&gt; &lt;b&gt;&lt;a&gt;Liturgie nog niet beschikbaar&lt;/a&gt;&lt;/b&gt;"
+                body += """ 
+                **Liturgie nog niet beschikbaar**  
+                """
 
         event.subject = subject
         event.body = body
