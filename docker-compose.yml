@@ -1,12 +1,11 @@
-version: '3'
 services:
-  preekrooster_script:
-    build:
-      context: /home/docker/containers/preekrooster_script
-    container_name: preekrooster_script
+  preekrooster-script:
+    image: python:3.10-slim
+    container_name: preekrooster-script
     volumes:
-      - /home/docker/containers/preekrooster_script:/app
-    env_file: stack.env
-    environment:
-      - TZ=Europe/Amsterdam
-    restart: unless-stopped
+      - /home/docker/containers/preekrooster-script:/app
+    working_dir: /app
+    command: >
+      sh -c "pip install -r requirements.txt && python script.py"
+    env_file:
+      - stack.env
