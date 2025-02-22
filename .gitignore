@@ -3,3 +3,4 @@ log.txt
 venv/
 logfile.txt
 o365_token.txt
+service_account.json

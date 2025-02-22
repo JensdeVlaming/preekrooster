@@ -1,20 +1,12 @@
 version: '3'
 services:
-  preekrooster:
-    build: .
-    container_name: preekrooster_app
+  preekrooster_script:
+    build:
+      context: /home/docker/containers/preekrooster_script
+    container_name: preekrooster_script
     volumes:
-      - preekrooster:/app
+      - /home/docker/containers/preekrooster_script:/app
     env_file: stack.env
     environment:
       - TZ=Europe/Amsterdam
     restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    tty: true
-
-volumes:
-  preekrooster:
